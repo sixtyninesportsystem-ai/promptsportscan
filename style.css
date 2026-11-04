@@ -3,7 +3,7 @@
   --brand: #0f766e; --in: #16a34a; --out: #ea580c; --bad: #dc2626; --line: #e5e7eb;
 }
 * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
-html, body { margin: 0; height: 100%; }
+html, body { margin: 0; min-height: 100%; }
 body {
   font-family: "Sarabun", "Noto Sans Thai", system-ui, -apple-system, sans-serif;
   background: var(--bg); color: var(--text); display: flex; flex-direction: column;
@@ -92,3 +92,6 @@ nav button.active { color: var(--brand); font-weight: 700; }
 .thumb button { position: absolute; top: 4px; right: 4px; padding: 2px 8px; font-size: 13px; border-radius: 99px; background: rgba(0,0,0,.6); color: #fff; border: 0; }
 
 .list li button.pin { color: var(--brand); }
+
+.big-btns .more { grid-column: 1 / -1; margin: 0 auto; font-size: 15px; color: var(--muted); }
+.more-btns { grid-column: 1 / -1; display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }

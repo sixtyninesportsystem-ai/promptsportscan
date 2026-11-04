@@ -55,8 +55,9 @@
 <script>
 'use strict';
 const $ = s => document.querySelector(s);
-const TYPES = { in: 'เข้างาน', break_out: 'พักเที่ยง', break_in: 'กลับจากพัก', out: 'ออกงาน', ot_out: 'ออก OT' };
-const KEY = {}; Object.keys(TYPES).forEach(k => KEY[TYPES[k]] = k);
+const TYPES = { in: 'เข้าเช้า', break_out: 'ออกเที่ยง', break_in: 'เข้าบ่าย', out: 'ออกเย็น', ot_out: 'ออก OT', ot_noon: 'OT เที่ยง' };
+const KEY = { 'เข้างาน': 'in', 'พักเที่ยง': 'break_out', 'กลับจากพัก': 'break_in', 'ออกงาน': 'out' };
+Object.keys(TYPES).forEach(k => KEY[TYPES[k]] = k);
 const params = new URLSearchParams(location.search);
 const store = {
   get(k) { try { return JSON.parse(localStorage.getItem(k)); } catch (e) { return null; } },
@@ -103,7 +104,8 @@ function calcDay(m, sc) {
     work = Math.max(0, work);
   }
   const late = (a != null ? Math.max(0, a - S) : 0) + (c != null ? Math.max(0, c - BE) : 0);
-  const ot = o != null ? Math.max(0, o - E) : 0;
+  // OT เที่ยง: ไม่พักกลางวัน ได้ OT เท่าช่วงพัก (เช่น 12:00-13:00 = 1 ชม.)
+  const ot = (o != null ? Math.max(0, o - E) : 0) + (m.ot_noon ? BE - BS : 0);
   return { work: work == null ? null : work / 60, late, ot: ot / 60 };
 }
 
@@ -125,7 +127,7 @@ function render(data) {
     const dt = new Date(date + 'T00:00:00');
     const label = dt.toLocaleDateString('th-TH', { weekday: 'short', day: 'numeric', month: 'short' });
     const isToday = date === new Date().toLocaleDateString('sv-SE');
-    const cell = k => m[k] ? '<td>' + hm(m[k]) + '</td>' : (k === 'ot_out' || isToday ? '<td>-</td>' : '<td class="miss">ไม่ได้สแกน</td>');
+    const cell = k => (m.ot_noon && (k === 'break_out' || k === 'break_in')) ? '<td>OT เที่ยง</td>' : m[k] ? '<td>' + hm(m[k]) + '</td>' : (k === 'ot_out' || isToday ? '<td>-</td>' : '<td class="miss">ไม่ได้สแกน</td>');
     return '<tr><td><b>' + esc(label) + '</b></td>' + ['in', 'break_out', 'break_in', 'out', 'ot_out'].map(cell).join('') +
       '<td>' + (c.work == null ? '-' : c.work.toFixed(2)) + '</td><td>' + (c.late || '-') + '</td><td>' + (c.ot ? c.ot.toFixed(2) : '-') + '</td></tr>';
   });

@@ -10,13 +10,15 @@ const REPEAT_BLOCK = 60000;     // กันสแกนซ้ำประเภ
 
 // ประเภทการสแกน (ต้องตรงกับ TYPES ใน Apps Script)
 const TYPES = {
-  in:        { label: 'เข้างาน',    color: '#16a34a' },
-  break_out: { label: 'พักเที่ยง',   color: '#d97706' },
-  break_in:  { label: 'กลับจากพัก', color: '#0284c7' },
-  out:       { label: 'ออกงาน',    color: '#ea580c' },
-  ot_out:    { label: 'ออก OT',    color: '#7c3aed' }
+  in:        { label: 'เข้าเช้า',  color: '#16a34a' },
+  break_out: { label: 'ออกเที่ยง', color: '#d97706' },
+  break_in:  { label: 'เข้าบ่าย',  color: '#0284c7' },
+  out:       { label: 'ออกเย็น',  color: '#ea580c' },
+  ot_out:    { label: 'ออก OT',    color: '#7c3aed' },
+  ot_noon:   { label: 'OT เที่ยง (ไม่พัก)', color: '#be185d' }
 };
-const TYPE_KEY = {}; Object.keys(TYPES).forEach(k => TYPE_KEY[TYPES[k].label] = k);
+const TYPE_KEY = { 'OT เที่ยง': 'ot_noon', 'เข้างาน': 'in', 'พักเที่ยง': 'break_out', 'กลับจากพัก': 'break_in', 'ออกงาน': 'out' }; // ชื่อเดิม
+Object.keys(TYPES).forEach(k => TYPE_KEY[TYPES[k].label] = k);
 
 /* ---------- เก็บข้อมูลในเครื่อง ---------- */
 const store = {
@@ -427,13 +429,13 @@ async function loadReport() {
       if (!m[key] || (latest ? r.time > m[key] : r.time < m[key])) m[key] = r.time;
     });
     const hm = x => x ? x.slice(0, 5) : '-';
-    $('#sumTable').innerHTML = '<tr><th>รหัส</th><th>ชื่อ</th><th>เข้า</th><th>พัก</th><th>กลับ</th><th>ออก</th><th>ออก OT</th><th>ชม.ทำงาน</th><th>สาย(นาที)</th><th>OT ชม.</th></tr>' +
+    $('#sumTable').innerHTML = '<tr><th>รหัส</th><th>ชื่อ</th><th>เข้า</th><th>พัก</th><th>กลับ</th><th>ออก</th><th>ออก OT</th><th>OT เที่ยง</th><th>ชม.ทำงาน</th><th>สาย(นาที)</th><th>OT ชม.</th></tr>' +
       (Object.values(sum).map(m => {
         const c = calcDay(m);
         return '<tr><td>' + esc(m.id) + '</td><td>' + esc(m.name) + '</td>' +
-          ['in', 'break_out', 'break_in', 'out', 'ot_out'].map(k => '<td style="color:' + TYPES[k].color + '">' + hm(m[k]) + '</td>').join('') +
+          ['in', 'break_out', 'break_in', 'out', 'ot_out', 'ot_noon'].map(k => '<td style="color:' + TYPES[k].color + '">' + hm(m[k]) + '</td>').join('') +
           '<td>' + (c.work === '' ? '-' : c.work.toFixed(2)) + '</td><td>' + (c.late || '-') + '</td><td>' + (c.ot ? c.ot.toFixed(2) : '-') + '</td></tr>';
-      }).join('') || '<tr><td colspan="10">ไม่มีข้อมูลวันนี้</td></tr>');
+      }).join('') || '<tr><td colspan="11">ไม่มีข้อมูลวันนี้</td></tr>');
     $('#logTable').innerHTML = '<tr><th>เวลา</th><th>ชื่อ</th><th>ประเภท</th><th>ความเหมือน</th><th>รูป</th></tr>' +
       rows.map(r => '<tr><td>' + esc(r.time) + '</td><td>' + esc(r.name) + '</td><td style="font-weight:600;color:' + ((TYPES[TYPE_KEY[r.type]] || {}).color || '') + '">' + esc(r.type) +
         '</td><td>' + esc(r.score) + '</td><td>' + (r.photo.startsWith('http') ? '<a href="' + esc(r.photo) + '" target="_blank" rel="noopener">ดู</a>' : '') + '</td></tr>').join('');
@@ -460,7 +462,8 @@ function calcDay(m) {
     work = Math.max(0, work);
   }
   const late = (a != null ? Math.max(0, a - S) : 0) + (c != null ? Math.max(0, c - BE) : 0);
-  const ot = o != null ? Math.max(0, o - E) : 0;
+  // OT เที่ยง: ไม่พักกลางวัน ได้ OT เท่าช่วงพัก (เช่น 12:00-13:00 = 1 ชม.)
+  const ot = (o != null ? Math.max(0, o - E) : 0) + (m.ot_noon ? BE - BS : 0);
   return { work: work == null ? '' : work / 60, late, ot: ot / 60 };
 }
 
@@ -468,11 +471,11 @@ function calcDay(m) {
 function suggestedType() {
   const toMin = x => { const p = String(x).split(':'); return +p[0] * 60 + +(p[1] || 0); };
   const sc = cfg.schedule, d = new Date(), now = d.getHours() * 60 + d.getMinutes();
-  const S = toMin(sc.start), BS = toMin(sc.breakStart), BE = toMin(sc.breakEnd), E = toMin(sc.end);
-  if (now < (S + BS) / 2) return 'in';
-  if (now < (BS + BE) / 2) return 'break_out';
-  if (now < (BE + E) / 2) return 'break_in';
-  if (now < E + 60) return 'out';
+  const at = (v, d) => toMin(v || d);
+  if (now < at(sc.btnBreakOut, '11:30')) return 'in';
+  if (now < at(sc.btnBreakIn, '12:30')) return 'break_out';
+  if (now < at(sc.btnOut, '15:00')) return 'break_in';
+  if (now < at(sc.btnOt, '18:00')) return 'out';
   return 'ot_out';
 }
 var lastSuggest = '';
@@ -480,9 +483,15 @@ function renderTypeBtns(force) {
   const sug = suggestedType();
   if (!force && sug === lastSuggest) return;
   lastSuggest = sug;
-  const order = [sug].concat(Object.keys(TYPES).filter(k => k !== sug));
-  $('#typeBtns').innerHTML = order.map((k, i) =>
-    '<button data-type="' + k + '" class="big' + (i === 0 ? ' main' : '') + '" style="background:' + TYPES[k].color + '"' + (scan ? ' disabled' : '') + '>' + TYPES[k].label + '</button>').join('');
+  // ปุ่มเดียวตามช่วงเวลา (ปุ่มอื่นซ่อนไว้ แตะ "สแกนรอบอื่น" เมื่อจำเป็น เช่น ลากลับก่อน)
+  // ช่วงเที่ยง มีปุ่มใหญ่ 2 ปุ่ม: ออกเที่ยง (พักตามปกติ) และ OT เที่ยง (ไม่พักกลางวัน)
+  const mains = sug === 'break_out' ? ['break_out', 'ot_noon'] : [sug];
+  const others = Object.keys(TYPES).filter(k => mains.indexOf(k) < 0);
+  $('#typeBtns').innerHTML = mains.map(k =>
+    '<button data-type="' + k + '" class="big main" style="background:' + TYPES[k].color + '"' + (scan ? ' disabled' : '') + '>สแกน' + TYPES[k].label + '</button>').join('') +
+    '<button id="btnMore" class="link more">สแกนรอบอื่น ▾</button>' +
+    '<div id="moreBtns" class="more-btns hidden">' + others.map(k =>
+      '<button data-type="' + k + '" class="big" style="background:' + TYPES[k].color + '">' + TYPES[k].label + '</button>').join('') + '</div>';
 }
 function setTypeBtns(disabled) { document.querySelectorAll('#typeBtns button').forEach(b => b.disabled = disabled); }
 
@@ -601,7 +610,11 @@ async function show(v) {
 
 function bindUi() {
   document.querySelectorAll('nav button').forEach(b => b.onclick = () => show(b.dataset.view));
-  $('#typeBtns').onclick = e => { const t = e.target.dataset && e.target.dataset.type; if (t && !scan) startScan(t); };
+  $('#typeBtns').onclick = e => {
+    if (e.target.id === 'btnMore') { $('#moreBtns').classList.toggle('hidden'); return; }
+    const t = e.target.dataset && e.target.dataset.type;
+    if (t && !scan) { $('#moreBtns').classList.add('hidden'); startScan(t); }
+  };
   renderTypeBtns(true); setInterval(() => renderTypeBtns(), 30000);
   $('#btnCancel').onclick = stopScan;
   $('#btnReg').onclick = saveReg;
