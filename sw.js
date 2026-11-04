@@ -1,5 +1,5 @@
 // เก็บไฟล์แอปและโมเดลไว้ในเครื่อง เปิดเร็วขึ้นและใช้ได้แม้เน็ตไม่ดี
-const CACHE = 'faceclock-v10';
+const CACHE = 'faceclock-v11';
 const FILES = [
   './', './index.html', './style.css', './app.js', './manifest.json', './icon-192.png', './icon-512.png',
   './lib/face-api.js',
@@ -21,7 +21,7 @@ self.addEventListener('fetch', e => {
   if (isModel) {
     e.respondWith(caches.match(e.request).then(r => r || fetch(e.request)));
   } else {
-    e.respondWith(fetch(e.request).then(r => {
+    e.respondWith(fetch(e.request, { cache: 'no-cache' }).then(r => {
       const copy = r.clone(); caches.open(CACHE).then(c => c.put(e.request, copy)); return r;
     }).catch(() => caches.match(e.request)));
   }

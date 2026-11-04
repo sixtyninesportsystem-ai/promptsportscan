@@ -478,10 +478,12 @@ function suggestedType() {
   if (now < at(sc.btnOt, '18:00')) return 'out';
   return 'ot_out';
 }
-var lastSuggest = '';
+var lastSuggest; // ไม่ใส่ค่าเริ่มต้น เพราะถูกตั้งค่าก่อนบรรทัดนี้จะรัน
 function renderTypeBtns(force) {
   const sug = suggestedType();
   if (!force && sug === lastSuggest) return;
+  // ถึงช่วงเวลาใหม่ และเครื่องว่างอยู่ที่หน้าสแกน: รีเฟรชทั้งหน้า (ได้ปุ่มใหม่ + โค้ดเวอร์ชันล่าสุด)
+  if (lastSuggest && !force && isIdle()) { location.reload(); return; }
   lastSuggest = sug;
   // ปุ่มเดียวตามช่วงเวลา (ปุ่มอื่นซ่อนไว้ แตะ "สแกนรอบอื่น" เมื่อจำเป็น เช่น ลากลับก่อน)
   // ช่วงเที่ยง มีปุ่มใหญ่ 2 ปุ่ม: ออกเที่ยง (พักตามปกติ) และ OT เที่ยง (ไม่พักกลางวัน)
@@ -492,6 +494,9 @@ function renderTypeBtns(force) {
     '<button id="btnMore" class="link more">สแกนรอบอื่น ▾</button>' +
     '<div id="moreBtns" class="more-btns hidden">' + others.map(k =>
       '<button data-type="' + k + '" class="big" style="background:' + TYPES[k].color + '">' + TYPES[k].label + '</button>').join('') + '</div>';
+}
+function isIdle() {
+  return view === 'scan' && !scan && $('#result').classList.contains('hidden') && $('#pinBox').classList.contains('hidden');
 }
 function setTypeBtns(disabled) { document.querySelectorAll('#typeBtns button').forEach(b => b.disabled = disabled); }
 
@@ -615,7 +620,13 @@ function bindUi() {
     const t = e.target.dataset && e.target.dataset.type;
     if (t && !scan) { $('#moreBtns').classList.add('hidden'); startScan(t); }
   };
-  renderTypeBtns(true); setInterval(() => renderTypeBtns(), 30000);
+  renderTypeBtns(true); setInterval(() => renderTypeBtns(), 10000);
+  // กลับมาเปิดจอ/สลับกลับมาที่แอป ตรวจปุ่มทันที
+  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') renderTypeBtns(); });
+  window.addEventListener('focus', () => renderTypeBtns());
+  // รีเฟรชทั้งหน้าวันละครั้งตอนตี 3 (ถ้าเครื่องว่าง) เพื่อล้างของค้างและรับเวอร์ชันใหม่
+  const bootDay = new Date().toDateString();
+  setInterval(() => { const d = new Date(); if (d.toDateString() !== bootDay && d.getHours() >= 3 && isIdle()) location.reload(); }, 60000);
   $('#btnCancel').onclick = stopScan;
   $('#btnReg').onclick = saveReg;
   $('#btnPick').onclick = () => $('#regFile').click();
