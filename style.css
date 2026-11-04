@@ -81,3 +81,9 @@ nav button.active { color: var(--brand); font-weight: 700; }
 .res-name { font-size: 26px; font-weight: 700; }
 .res-text { font-size: 22px; }
 .res-note { font-size: 14px; color: var(--muted); }
+
+.thumbs { display: grid; grid-template-columns: repeat(auto-fill, minmax(84px, 1fr)); gap: 8px; }
+.thumbs:empty { display: none; }
+.thumb { position: relative; }
+.thumb img { width: 100%; aspect-ratio: 1; object-fit: cover; border-radius: 10px; display: block; }
+.thumb button { position: absolute; top: 4px; right: 4px; padding: 2px 8px; font-size: 13px; border-radius: 99px; background: rgba(0,0,0,.6); color: #fff; border: 0; }

@@ -39,12 +39,15 @@
 
   <!-- หน้าลงทะเบียน -->
   <section id="view-register" class="view">
-    <div class="cam-slot"></div>
-    <div id="regStatus" class="status">กรอกข้อมูล แล้วกด “เริ่มถ่ายหน้า”</div>
     <div class="form">
       <input id="regId" placeholder="รหัสพนักงาน เช่น 001" autocomplete="off">
       <input id="regName" placeholder="ชื่อ-นามสกุล" autocomplete="off">
-      <button id="btnReg" class="primary">เริ่มถ่ายหน้า (5 ภาพ)</button>
+      <input id="regFile" type="file" accept="image/*" multiple hidden>
+      <button id="btnPick">＋ เลือกรูปหน้าพนักงาน (3-5 รูป)</button>
+      <small>ใช้รูปหน้าตรง เห็นหน้าชัด ไม่ใส่แว่นดำ/หน้ากาก มีหลายมุมจะดีที่สุด รูปละ 1 คน</small>
+      <div id="regFaces" class="thumbs"></div>
+      <div id="regStatus" class="status small"></div>
+      <button id="btnReg" class="primary" disabled>บันทึกพนักงาน</button>
     </div>
     <h3>พนักงานที่ลงทะเบียนแล้ว <span id="staffCount"></span></h3>
     <ul id="staffList" class="list"></ul>
@@ -77,7 +80,7 @@
       <label class="check"><input id="setPhoto" type="checkbox"> แนบรูปตอนสแกน (เก็บไว้ใน Google Drive)</label>
       <label>ความเข้มงวดในการจำหน้า: <b id="thrVal"></b></label>
       <input id="setThr" type="range" min="0.35" max="0.6" step="0.01">
-      <small>ค่าน้อย = เข้มงวด (ไม่ค่อยจำผิดคน แต่อาจต้องสแกนหลายครั้ง) ค่าแนะนำ 0.45</small>
+      <small>ค่ามาก = จำง่าย สแกนผ่านเร็ว / ค่าน้อย = เข้มงวด ค่าแนะนำ 0.50 ถ้าเริ่มจำผิดคน ให้ลดลงเหลือ 0.45</small>
       <button id="btnSave" class="primary">บันทึกและทดสอบการเชื่อมต่อ</button>
       <div id="setStatus" class="status small"></div>
       <hr>
