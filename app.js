@@ -8,12 +8,23 @@ const REG_MAX = 10;             // จำนวนรูปสูงสุดต
 const ADMIN_IDLE = 3 * 60000;   // ไม่ได้แตะหน้าผู้ดูแลเกิน 3 นาที กลับหน้าสแกนเอง
 const REPEAT_BLOCK = 60000;     // กันสแกนซ้ำประเภทเดิมภายใน 1 นาที
 
+// ประเภทการสแกน (ต้องตรงกับ TYPES ใน Apps Script)
+const TYPES = {
+  in:        { label: 'เข้างาน',    color: '#16a34a' },
+  break_out: { label: 'พักเที่ยง',   color: '#d97706' },
+  break_in:  { label: 'กลับจากพัก', color: '#0284c7' },
+  out:       { label: 'ออกงาน',    color: '#ea580c' },
+  ot_out:    { label: 'ออก OT',    color: '#7c3aed' }
+};
+const TYPE_KEY = {}; Object.keys(TYPES).forEach(k => TYPE_KEY[TYPES[k].label] = k);
+
 /* ---------- เก็บข้อมูลในเครื่อง ---------- */
 const store = {
   get(k, d) { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; } catch (e) { return d; } },
   set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); return true; } catch (e) { return false; } }
 };
-let cfg = Object.assign({ url: '', key: '', pinHash: '', voice: true, photo: true, blink: false, thr: 0.5 }, store.get('cfg', {}));
+let cfg = Object.assign({ url: '', key: '', pinHash: '', voice: true, photo: true, blink: false, thr: 0.5,
+  schedule: { start: '08:00', breakStart: '12:00', breakEnd: '13:00', end: '17:00' } }, store.get('cfg', {}));
 // เวอร์ชัน 2: ค่าเริ่มต้นแบบเร็ว ไม่ต้องกระพริบตา จำง่ายขึ้น
 if (!cfg.v || cfg.v < 2) { cfg.blink = false; cfg.thr = 0.5; cfg.v = 2; store.set('cfg', cfg); }
 let staff = store.get('staff', []);
@@ -21,7 +32,7 @@ let queue = store.get('queue', []);
 
 let matcher = null, modelsReady = false, camReady = false;
 let view = 'scan', adminPin = null, adminTouched = 0;
-let scan = null, busy = false, regFaces = [];
+let scan = null, busy = false, regFaces = [], regCamOn = false;
 const lastClock = {};
 
 const video = $('#video'), overlay = $('#overlay');
@@ -48,7 +59,7 @@ async function init() {
   } catch (e) {
     setCamMsg('โหลดระบบจดจำใบหน้าไม่สำเร็จ ลองรีเฟรชหน้า'); console.error(e); return;
   }
-  setCamMsg(cfg.url ? 'กล้องจะเปิดเมื่อกด “เข้างาน” หรือ “ออกงาน”' : 'ยังไม่ได้ตั้งค่า ไปที่แท็บ “ตั้งค่า” ก่อน');
+  setCamMsg(cfg.url ? 'กล้องจะเปิดเมื่อกดปุ่มสแกนด้านล่าง' : 'ยังไม่ได้ตั้งค่า ไปที่แท็บ “ตั้งค่า” ก่อน');
   syncStaff();
   setInterval(syncStaff, 10 * 60000);
   setInterval(flushQueue, 60000);
@@ -81,7 +92,7 @@ function stopCamera() {
   if (st) st.getTracks().forEach(t => t.stop());
   video.srcObject = null; camReady = false;
   clearOverlay();
-  setCamMsg('กล้องจะเปิดเมื่อกด “เข้างาน” หรือ “ออกงาน”');
+  setCamMsg('กล้องจะเปิดเมื่อกดปุ่มสแกนด้านล่าง');
 }
 
 function keepAwake() {
@@ -134,22 +145,22 @@ async function startScan(type) {
   if (!modelsReady) return toast(false, 'ระบบยังโหลดไม่เสร็จ', 'รอสักครู่ แล้วลองใหม่');
   if (!matcher) return toast(false, 'ยังไม่มีพนักงาน', 'ให้ผู้ดูแลลงทะเบียนใบหน้าก่อน');
   unlockSpeech();
-  $('#btnIn').disabled = $('#btnOut').disabled = true;
+  setTypeBtns(true);
   setStatus('#scanStatus', 'กำลังเปิดกล้อง…');
   if (!camReady && !(await startCamera())) {
-    $('#btnIn').disabled = $('#btnOut').disabled = false;
+    setTypeBtns(false);
     setStatus('#scanStatus', 'แตะปุ่มด้านล่าง แล้วมองกล้อง');
     return toast(false, 'เปิดกล้องไม่ได้', 'กรุณาอนุญาตให้เว็บนี้ใช้กล้อง (แตะ 🔒 ข้างช่องลิงก์ > สิทธิ์ > กล้อง)');
   }
   scan = { type, start: Date.now(), votes: [], base: 0, closed: false, blinked: false, frames: 0 };
   $('#btnCancel').classList.remove('hidden');
-  setStatus('#scanStatus', type === 'in' ? 'เข้างาน: มองกล้อง' + (cfg.blink ? ' แล้วกระพริบตา 1 ครั้ง' : '') : 'ออกงาน: มองกล้อง' + (cfg.blink ? ' แล้วกระพริบตา 1 ครั้ง' : ''));
+  setStatus('#scanStatus', TYPES[type].label + ': มองกล้อง' + (cfg.blink ? ' แล้วกระพริบตา 1 ครั้ง' : ''));
 }
 
 function stopScan() {
   scan = null;
   stopCamera();
-  $('#btnIn').disabled = $('#btnOut').disabled = false;
+  setTypeBtns(false);
   $('#btnCancel').classList.add('hidden');
   setStatus('#scanStatus', 'แตะปุ่มด้านล่าง แล้วมองกล้อง');
 }
@@ -194,7 +205,7 @@ async function submitClock(person, type, dist, photo) {
   }
   lastClock[key] = Date.now();
   const rec = { action: 'clock', staffId: person.id, name: person.name, type, distance: +dist.toFixed(3), ts: Date.now(), photo };
-  const label = type === 'in' ? 'เข้างาน' : 'ออกงาน';
+  const label = TYPES[type].label;
   const time = new Date().toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' });
   toast(true, person.name, label + ' ' + time + ' น.', 'กำลังส่งข้อมูล…', photo, type);
   speak(person.name + ' สแกนสำเร็จ');
@@ -222,14 +233,8 @@ async function onRegFiles(files) {
     if (regFaces.length >= REG_MAX) break;
     setStatus('#regStatus', 'กำลังตรวจหาใบหน้า ' + (i + 1) + '/' + list.length + '…');
     try {
-      const cv = await fileToCanvas(list[i], 1024);
-      const found = await faceapi
-        .detectAllFaces(cv, new faceapi.TinyFaceDetectorOptions({ inputSize: 608, scoreThreshold: 0.4 }))
-        .withFaceLandmarks().withFaceDescriptors();
-      if (!found.length) { bad++; continue; }
-      if (found.length > 1) multi++;
-      const f = found.sort((x, y) => y.detection.box.area - x.detection.box.area)[0]; // ใช้หน้าที่ใหญ่ที่สุด
-      regFaces.push({ desc: Array.from(f.descriptor, v => +v.toFixed(5)), thumb: cropFace(cv, f.detection.box, 200) });
+      const n = await addFaceFromCanvas(await fileToCanvas(list[i], 1024));
+      if (!n) bad++; else if (n > 1) multi++;
     } catch (e) { console.error(e); bad++; }
     adminTouched = Date.now();
   }
@@ -240,6 +245,55 @@ async function onRegFiles(files) {
   if (multi) msg += ' · มีหลายคนในรูป ' + multi + ' รูป (ใช้หน้าที่ใหญ่ที่สุด)';
   if (regFaces.length && regFaces.length < 3) msg += ' · แนะนำ 3-5 รูป';
   setStatus('#regStatus', msg, regFaces.length ? 'ok' : 'bad');
+}
+
+// หาใบหน้าในรูป แล้วเพิ่มเข้ารายการ คืนค่าจำนวนหน้าที่พบ (0 = ไม่พบ)
+async function addFaceFromCanvas(cv) {
+  const found = await faceapi
+    .detectAllFaces(cv, new faceapi.TinyFaceDetectorOptions({ inputSize: 608, scoreThreshold: 0.4 }))
+    .withFaceLandmarks().withFaceDescriptors();
+  if (!found.length) return 0;
+  const f = found.sort((x, y) => y.detection.box.area - x.detection.box.area)[0]; // ใช้หน้าที่ใหญ่ที่สุด
+  regFaces.push({ desc: Array.from(f.descriptor, v => +v.toFixed(5)), thumb: cropFace(cv, f.detection.box, 200) });
+  return found.length;
+}
+
+/* ---------- ถ่ายรูปนิ่งจากกล้องในหน้าลงทะเบียน ---------- */
+
+async function openRegCam() {
+  adminTouched = Date.now();
+  if (!modelsReady) return setStatus('#regStatus', 'ระบบยังโหลดไม่เสร็จ รอสักครู่', 'bad');
+  $('#regCamBox').classList.remove('hidden'); $('#btnCam').classList.add('hidden');
+  setCamMsg('กำลังเปิดกล้อง…');
+  if (!camReady && !(await startCamera())) {
+    closeRegCam();
+    return setStatus('#regStatus', 'เปิดกล้องไม่ได้ กรุณาอนุญาตให้เว็บนี้ใช้กล้อง (แตะ 🔒 ข้างช่องลิงก์ > สิทธิ์ > กล้อง)', 'bad');
+  }
+  regCamOn = true;
+  setCamMsg('ให้หน้าอยู่กลางจอ แล้วกด “ถ่ายรูป”');
+}
+
+function closeRegCam() {
+  regCamOn = false;
+  stopCamera();
+  $('#regCamBox').classList.add('hidden'); $('#btnCam').classList.remove('hidden');
+}
+
+async function takeShot() {
+  adminTouched = Date.now();
+  if (!camReady) return;
+  if (regFaces.length >= REG_MAX) return setStatus('#regStatus', 'ครบ ' + REG_MAX + ' รูปแล้ว', 'bad');
+  const c = document.createElement('canvas');
+  c.width = video.videoWidth; c.height = video.videoHeight;
+  c.getContext('2d').drawImage(video, 0, 0);
+  $('#btnShot').disabled = true;
+  setStatus('#regStatus', 'กำลังตรวจหาใบหน้า…');
+  const n = await addFaceFromCanvas(c);
+  $('#btnShot').disabled = false;
+  renderRegFaces();
+  if (!n) return setStatus('#regStatus', 'ไม่พบใบหน้าในรูปนี้ ขยับเข้าใกล้และหาที่สว่าง แล้วถ่ายใหม่', 'bad');
+  const left = Math.max(0, 3 - regFaces.length);
+  setStatus('#regStatus', 'ได้ใบหน้า ' + regFaces.length + ' รูป' + (left ? ' · ถ่ายอีก ' + left + ' รูป (หันซ้าย/ขวาเล็กน้อย)' : ' · พอแล้ว กด “บันทึกพนักงาน” ได้เลย'), 'ok');
 }
 
 function fileToCanvas(file, max) {
@@ -307,8 +361,31 @@ async function deleteStaff(id) {
 function renderStaff() {
   $('#staffCount').textContent = '(' + staff.length + ' คน)';
   $('#staffList').innerHTML = staff.map(s =>
-    '<li><span><b>' + esc(s.id) + '</b> ' + esc(s.name) + '</span><button data-del="' + esc(s.id) + '">ลบ</button></li>'
+    '<li><span><b>' + esc(s.id) + '</b> ' + esc(s.name) + (s.hasPin ? ' <small>· มี PIN</small>' : '') + '</span>' +
+    '<span><button class="pin" data-pin="' + esc(s.id) + '">' + (s.hasPin ? 'รีเซ็ต PIN' : 'ตั้ง PIN') + '</button> ' +
+    '<button data-del="' + esc(s.id) + '">ลบ</button></span></li>'
   ).join('') || '<li>ยังไม่มีพนักงาน</li>';
+}
+
+async function setStaffPin(id) {
+  adminTouched = Date.now();
+  const s = staff.find(x => x.id === id);
+  const pin = prompt('ตั้ง PIN 4-6 หลัก ให้ ' + (s ? s.name : id) + '\n(พนักงานใช้ดูประวัติเวลาของตัวเอง)');
+  if (pin == null) return;
+  if (!/^\d{4,6}$/.test(pin.trim())) return alert('PIN ต้องเป็นตัวเลข 4-6 หลัก');
+  try {
+    const res = await api({ action: 'setPin', adminPin, id, pin: pin.trim() });
+    setStaff(res.staff);
+    alert('ตั้ง PIN ให้ ' + (s ? s.name : id) + ' แล้ว\nแจ้งพนักงาน: รหัส ' + id + ' / PIN ' + pin.trim());
+  } catch (e) { alert('ตั้ง PIN ไม่สำเร็จ: ' + e.message); }
+}
+
+function staffLink() { return new URL('me.html', location.href).href.split('?')[0] + '?u=' + encodeURIComponent(cfg.url); }
+async function copyStaffLink() {
+  if (!cfg.url) return alert('ยังไม่ได้ตั้งค่าลิงก์ Apps Script');
+  const link = staffLink();
+  try { await navigator.clipboard.writeText(link); alert('คัดลอกลิงก์แล้ว ส่งให้พนักงานทาง LINE ได้เลย\n\n' + link); }
+  catch (e) { prompt('คัดลอกลิงก์นี้ส่งให้พนักงาน', link); }
 }
 
 function setStaff(list) {
@@ -326,7 +403,10 @@ function buildMatcher() {
 
 async function syncStaff() {
   if (!cfg.url) return;
-  try { const res = await api({ action: 'staff' }); setStaff(res.staff); setNet(true); }
+  try {
+    const res = await api({ action: 'staff' }); setStaff(res.staff); setNet(true);
+    if (res.schedule) { cfg.schedule = res.schedule; store.set('cfg', cfg); renderTypeBtns(); }
+  }
   catch (e) { if (e.network) setNet(false); }
 }
 
@@ -337,24 +417,74 @@ async function loadReport() {
   try {
     const res = await api({ action: 'records', adminPin, date });
     if (res.sheetUrl) { $('#sheetLink').href = res.sheetUrl; $('#sheetLink').hidden = false; }
+    if (res.schedule) { cfg.schedule = res.schedule; store.set('cfg', cfg); }
     const rows = res.records || [];
     const sum = {};
     rows.forEach(r => {
-      const m = sum[r.id] || (sum[r.id] = { id: r.id, name: r.name, inT: '', outT: '' });
-      if (r.type === 'เข้างาน' && (!m.inT || r.time < m.inT)) m.inT = r.time;
-      if (r.type === 'ออกงาน' && (!m.outT || r.time > m.outT)) m.outT = r.time;
+      const key = TYPE_KEY[r.type]; if (!key) return;
+      const m = sum[r.id] || (sum[r.id] = { id: r.id, name: r.name });
+      const latest = key === 'out' || key === 'ot_out';
+      if (!m[key] || (latest ? r.time > m[key] : r.time < m[key])) m[key] = r.time;
     });
-    const hrs = (a, b) => { if (!a || !b) return '-'; const t = s => { const p = s.split(':'); return +p[0] * 60 + +p[1]; }; const h = (t(b) - t(a)) / 60; return h > 0 ? h.toFixed(2) : '-'; };
-    $('#sumTable').innerHTML = '<tr><th>รหัส</th><th>ชื่อ</th><th>เข้า</th><th>ออก</th><th>ชม.</th></tr>' +
-      (Object.values(sum).map(m => '<tr><td>' + esc(m.id) + '</td><td>' + esc(m.name) + '</td><td class="in">' + (m.inT.slice(0, 5) || '-') +
-        '</td><td class="out">' + (m.outT.slice(0, 5) || '-') + '</td><td>' + hrs(m.inT, m.outT) + '</td></tr>').join('') || '<tr><td colspan="5">ไม่มีข้อมูลวันนี้</td></tr>');
+    const hm = x => x ? x.slice(0, 5) : '-';
+    $('#sumTable').innerHTML = '<tr><th>รหัส</th><th>ชื่อ</th><th>เข้า</th><th>พัก</th><th>กลับ</th><th>ออก</th><th>ออก OT</th><th>ชม.ทำงาน</th><th>สาย(นาที)</th><th>OT ชม.</th></tr>' +
+      (Object.values(sum).map(m => {
+        const c = calcDay(m);
+        return '<tr><td>' + esc(m.id) + '</td><td>' + esc(m.name) + '</td>' +
+          ['in', 'break_out', 'break_in', 'out', 'ot_out'].map(k => '<td style="color:' + TYPES[k].color + '">' + hm(m[k]) + '</td>').join('') +
+          '<td>' + (c.work === '' ? '-' : c.work.toFixed(2)) + '</td><td>' + (c.late || '-') + '</td><td>' + (c.ot ? c.ot.toFixed(2) : '-') + '</td></tr>';
+      }).join('') || '<tr><td colspan="10">ไม่มีข้อมูลวันนี้</td></tr>');
     $('#logTable').innerHTML = '<tr><th>เวลา</th><th>ชื่อ</th><th>ประเภท</th><th>ความเหมือน</th><th>รูป</th></tr>' +
-      rows.map(r => '<tr><td>' + esc(r.time) + '</td><td>' + esc(r.name) + '</td><td class="' + (r.type === 'เข้างาน' ? 'in' : 'out') + '">' + esc(r.type) +
+      rows.map(r => '<tr><td>' + esc(r.time) + '</td><td>' + esc(r.name) + '</td><td style="font-weight:600;color:' + ((TYPES[TYPE_KEY[r.type]] || {}).color || '') + '">' + esc(r.type) +
         '</td><td>' + esc(r.score) + '</td><td>' + (r.photo.startsWith('http') ? '<a href="' + esc(r.photo) + '" target="_blank" rel="noopener">ดู</a>' : '') + '</td></tr>').join('');
   } catch (e) {
     $('#sumTable').innerHTML = '<tr><td>โหลดไม่สำเร็จ: ' + esc(e.message) + '</td></tr>';
   }
 }
+
+/** คิดชั่วโมงทำงาน (หักพักเที่ยง), นาทีที่สาย, ชั่วโมง OT (สูตรเดียวกับใน Apps Script) */
+function calcDay(m) {
+  const toMin = x => { const p = String(x).split(':'); return +p[0] * 60 + +(p[1] || 0); };
+  const t = x => x ? toMin(x) : null, sc = cfg.schedule;
+  const a = t(m.in), b = t(m.break_out), c = t(m.break_in), d = t(m.out), o = t(m.ot_out);
+  const S = toMin(sc.start), BS = toMin(sc.breakStart), BE = toMin(sc.breakEnd), E = toMin(sc.end);
+  const end = d != null ? d : (o != null ? Math.min(o, E) : null);
+  let work = null;
+  if (b != null || c != null) {
+    work = 0;
+    if (a != null && b != null) work += Math.max(0, b - a);
+    if (c != null && end != null) work += Math.max(0, end - c);
+  } else if (a != null && end != null) {
+    work = end - a;
+    if (a < BE && end > BS) work -= (BE - BS);
+    work = Math.max(0, work);
+  }
+  const late = (a != null ? Math.max(0, a - S) : 0) + (c != null ? Math.max(0, c - BE) : 0);
+  const ot = o != null ? Math.max(0, o - E) : 0;
+  return { work: work == null ? '' : work / 60, late, ot: ot / 60 };
+}
+
+/* ---------- ปุ่มสแกน 5 แบบ (ปุ่มที่ตรงกับช่วงเวลาตอนนี้จะใหญ่และอยู่บนสุด) ---------- */
+function suggestedType() {
+  const toMin = x => { const p = String(x).split(':'); return +p[0] * 60 + +(p[1] || 0); };
+  const sc = cfg.schedule, d = new Date(), now = d.getHours() * 60 + d.getMinutes();
+  const S = toMin(sc.start), BS = toMin(sc.breakStart), BE = toMin(sc.breakEnd), E = toMin(sc.end);
+  if (now < (S + BS) / 2) return 'in';
+  if (now < (BS + BE) / 2) return 'break_out';
+  if (now < (BE + E) / 2) return 'break_in';
+  if (now < E + 60) return 'out';
+  return 'ot_out';
+}
+var lastSuggest = '';
+function renderTypeBtns(force) {
+  const sug = suggestedType();
+  if (!force && sug === lastSuggest) return;
+  lastSuggest = sug;
+  const order = [sug].concat(Object.keys(TYPES).filter(k => k !== sug));
+  $('#typeBtns').innerHTML = order.map((k, i) =>
+    '<button data-type="' + k + '" class="big' + (i === 0 ? ' main' : '') + '" style="background:' + TYPES[k].color + '"' + (scan ? ' disabled' : '') + '>' + TYPES[k].label + '</button>').join('');
+}
+function setTypeBtns(disabled) { document.querySelectorAll('#typeBtns button').forEach(b => b.disabled = disabled); }
 
 /* ---------- ติดต่อหลังบ้าน ---------- */
 async function api(payload, conf) {
@@ -364,7 +494,12 @@ async function api(payload, conf) {
   try {
     // ส่งแบบ text/plain เพื่อไม่ให้ติดปัญหา CORS ของ Google Apps Script
     res = await fetch(c.url, { method: 'POST', body: JSON.stringify(Object.assign({}, payload, { key: c.key })) });
-  } catch (e) { throw Object.assign(new Error('เชื่อมต่ออินเทอร์เน็ตไม่ได้'), { network: true }); }
+  } catch (e) {
+    const msg = navigator.onLine
+      ? 'ติดต่อ Apps Script ไม่ได้ ตรวจว่าลิงก์ลงท้าย /exec และตอน Deploy ตั้ง “ผู้มีสิทธิ์เข้าถึง” เป็น “ทุกคน”'
+      : 'เชื่อมต่ออินเทอร์เน็ตไม่ได้';
+    throw Object.assign(new Error(msg), { network: true });
+  }
   let data;
   try { data = await res.json(); } catch (e) { throw Object.assign(new Error('ลิงก์ Apps Script ไม่ถูกต้อง หรือยังไม่ได้ตั้งสิทธิ์ให้ “ทุกคน”'), { network: false }); }
   if (!data.ok) throw Object.assign(new Error(data.error || 'เกิดข้อผิดพลาด'), { network: false });
@@ -419,7 +554,7 @@ async function requireAdmin() {
   adminPin = p; adminTouched = Date.now();
   return true;
 }
-function lockAdmin() { adminPin = null; regFaces = []; renderRegFaces(); }
+function lockAdmin() { adminPin = null; regFaces = []; renderRegFaces(); if (regCamOn) closeRegCam(); }
 
 async function saveSettings() {
   const next = Object.assign({}, cfg, {
@@ -434,7 +569,7 @@ async function saveSettings() {
     next.pinHash = await sha(pin);
     cfg = next; store.set('cfg', cfg); adminPin = pin;
     $('#setPin').value = '';
-    buildMatcher(); if (!scan) setCamMsg('กล้องจะเปิดเมื่อกด “เข้างาน” หรือ “ออกงาน”');
+    buildMatcher(); if (!scan) setCamMsg('กล้องจะเปิดเมื่อกดปุ่มสแกนด้านล่าง');
     setStatus('#setStatus', 'เชื่อมต่อสำเร็จ บันทึกแล้ว', 'ok');
     syncStaff(); flushQueue();
   } catch (e) {
@@ -453,6 +588,7 @@ function fillSettings() {
 async function show(v) {
   if (v !== 'scan' && !(await requireAdmin())) return;
   if (scan) stopScan();
+  if (regCamOn) closeRegCam();
   view = v; adminTouched = Date.now();
   document.querySelectorAll('.view').forEach(el => el.classList.toggle('active', el.id === 'view-' + v));
   document.querySelectorAll('nav button').forEach(b => b.classList.toggle('active', b.dataset.view === v));
@@ -465,14 +601,18 @@ async function show(v) {
 
 function bindUi() {
   document.querySelectorAll('nav button').forEach(b => b.onclick = () => show(b.dataset.view));
-  $('#btnIn').onclick = () => startScan('in');
-  $('#btnOut').onclick = () => startScan('out');
+  $('#typeBtns').onclick = e => { const t = e.target.dataset && e.target.dataset.type; if (t && !scan) startScan(t); };
+  renderTypeBtns(true); setInterval(() => renderTypeBtns(), 30000);
   $('#btnCancel').onclick = stopScan;
   $('#btnReg').onclick = saveReg;
   $('#btnPick').onclick = () => $('#regFile').click();
+  $('#btnCam').onclick = openRegCam;
+  $('#btnCamClose').onclick = closeRegCam;
+  $('#btnShot').onclick = takeShot;
   $('#regFile').onchange = e => onRegFiles(e.target.files);
   $('#regFaces').onclick = e => { const i = e.target.dataset.rm; if (i != null) { regFaces.splice(+i, 1); renderRegFaces(); } };
-  $('#staffList').onclick = e => { const id = e.target.dataset.del; if (id) deleteStaff(id); };
+  $('#staffList').onclick = e => { const d = e.target.dataset; if (d.del) deleteStaff(d.del); else if (d.pin) setStaffPin(d.pin); };
+  $('#btnStaffLink').onclick = copyStaffLink;
   $('#btnRep').onclick = loadReport;
   $('#btnSave').onclick = saveSettings;
   $('#btnFlush').onclick = flushQueue;
@@ -487,7 +627,7 @@ let toastTimer;
 function toast(ok, name, text, note, photo, type) {
   $('#resIcon').className = 'res-icon' + (ok ? '' : ' bad');
   $('#resIcon').textContent = ok ? '✓' : '✕';
-  if (ok && type) $('#resIcon').style.color = type === 'in' ? 'var(--in)' : 'var(--out)'; else $('#resIcon').style.color = '';
+  $('#resIcon').style.color = ok && type ? TYPES[type].color : '';
   $('#resName').textContent = name || '';
   $('#resText').textContent = text || '';
   $('#resNote').textContent = note || '';

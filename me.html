@@ -1,0 +1,174 @@
+<!doctype html>
+<html lang="th">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0f766e">
+<title>ประวัติเวลาของฉัน</title>
+<link rel="icon" href="icon-192.png">
+<link rel="stylesheet" href="style.css">
+<style>
+  body { padding-bottom: 24px; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 16px; }
+  .totals { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; margin: 12px 0; }
+  .totals div { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px; }
+  .totals b { display: block; font-size: 22px; }
+  .totals span { font-size: 13px; color: var(--muted); }
+  td.miss { color: var(--bad); }
+  .who { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+</style>
+</head>
+<body>
+<header>
+  <div class="clock"><div style="font-size:20px;font-weight:700">ประวัติเวลาของฉัน</div><div id="whoName" style="font-size:13px;opacity:.85"></div></div>
+</header>
+<main>
+  <section id="login" class="card">
+    <div class="form">
+      <label>รหัสพนักงาน</label>
+      <input id="id" autocomplete="username" placeholder="เช่น 001">
+      <label>PIN (ขอจากผู้ดูแล)</label>
+      <input id="pin" type="password" inputmode="numeric" autocomplete="current-password">
+      <label class="check"><input id="remember" type="checkbox" checked> จำไว้ในเครื่องนี้</label>
+      <button id="btnLogin" class="primary">ดูประวัติ</button>
+      <div id="msg" class="status small"></div>
+    </div>
+  </section>
+
+  <section id="data" hidden>
+    <div class="who">
+      <input id="month" type="month" style="flex:1">
+      <button id="btnLogout">ออกจากระบบ</button>
+    </div>
+    <div class="totals">
+      <div><b id="tDays">-</b><span>วันที่มาทำงาน</span></div>
+      <div><b id="tHours">-</b><span>ชั่วโมงทำงานรวม</span></div>
+      <div><b id="tLate">-</b><span>สายรวม (นาที)</span></div>
+      <div><b id="tOt">-</b><span>OT รวม (ชั่วโมง)</span></div>
+    </div>
+    <div id="dataMsg" class="status small"></div>
+    <div class="table-wrap"><table id="days"></table></div>
+    <small>ช่องสีแดง “ไม่ได้สแกน” คือรอบที่ไม่มีบันทึก ถ้าคุณสแกนแล้วแต่ไม่ขึ้น ให้แจ้งผู้ดูแลพร้อมวันและเวลา</small>
+  </section>
+</main>
+
+<script>
+'use strict';
+const $ = s => document.querySelector(s);
+const TYPES = { in: 'เข้างาน', break_out: 'พักเที่ยง', break_in: 'กลับจากพัก', out: 'ออกงาน', ot_out: 'ออก OT' };
+const KEY = {}; Object.keys(TYPES).forEach(k => KEY[TYPES[k]] = k);
+const params = new URLSearchParams(location.search);
+const store = {
+  get(k) { try { return JSON.parse(localStorage.getItem(k)); } catch (e) { return null; } },
+  set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) {} },
+  del(k) { try { localStorage.removeItem(k); } catch (e) {} }
+};
+const API = params.get('u') || (store.get('me_api') || '');
+if (params.get('u')) store.set('me_api', params.get('u'));
+let cred = store.get('me_cred');
+
+function thisMonth() { const d = new Date(); return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0'); }
+function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])); }
+
+async function call(payload) {
+  if (!API) throw new Error('ลิงก์ไม่ครบ กรุณาขอลิงก์ใหม่จากผู้ดูแล');
+  let res;
+  try { res = await fetch(API, { method: 'POST', body: JSON.stringify(payload) }); }
+  catch (e) { throw new Error('เชื่อมต่ออินเทอร์เน็ตไม่ได้'); }
+  const data = await res.json().catch(() => ({ ok: false, error: 'ระบบไม่ตอบกลับ ลองใหม่อีกครั้ง' }));
+  if (!data.ok) throw new Error(data.error || 'เกิดข้อผิดพลาด');
+  return data;
+}
+
+async function load(c, month) {
+  const data = await call({ action: 'myRecords', id: c.id, pin: c.pin, month });
+  render(data);
+  return data;
+}
+
+function calcDay(m, sc) {
+  const toMin = x => { const p = String(x).split(':'); return +p[0] * 60 + +(p[1] || 0); };
+  const t = x => x ? toMin(x) : null;
+  const a = t(m.in), b = t(m.break_out), c = t(m.break_in), d = t(m.out), o = t(m.ot_out);
+  const S = toMin(sc.start), BS = toMin(sc.breakStart), BE = toMin(sc.breakEnd), E = toMin(sc.end);
+  const end = d != null ? d : (o != null ? Math.min(o, E) : null);
+  let work = null;
+  if (b != null || c != null) {
+    work = 0;
+    if (a != null && b != null) work += Math.max(0, b - a);
+    if (c != null && end != null) work += Math.max(0, end - c);
+  } else if (a != null && end != null) {
+    work = end - a;
+    if (a < BE && end > BS) work -= (BE - BS);
+    work = Math.max(0, work);
+  }
+  const late = (a != null ? Math.max(0, a - S) : 0) + (c != null ? Math.max(0, c - BE) : 0);
+  const ot = o != null ? Math.max(0, o - E) : 0;
+  return { work: work == null ? null : work / 60, late, ot: ot / 60 };
+}
+
+function render(data) {
+  $('#whoName').textContent = data.name;
+  const days = {};
+  data.records.forEach(r => {
+    const k = KEY[r.type]; if (!k) return;
+    const d = days[r.date] || (days[r.date] = {});
+    const latest = k === 'out' || k === 'ot_out';
+    if (!d[k] || (latest ? r.time > d[k] : r.time < d[k])) d[k] = r.time;
+  });
+  const dates = Object.keys(days).sort().reverse();
+  let tH = 0, tL = 0, tO = 0;
+  const hm = x => x ? x.slice(0, 5) : '';
+  const rows = dates.map(date => {
+    const m = days[date], c = calcDay(m, data.schedule);
+    tH += c.work || 0; tL += c.late; tO += c.ot;
+    const dt = new Date(date + 'T00:00:00');
+    const label = dt.toLocaleDateString('th-TH', { weekday: 'short', day: 'numeric', month: 'short' });
+    const isToday = date === new Date().toLocaleDateString('sv-SE');
+    const cell = k => m[k] ? '<td>' + hm(m[k]) + '</td>' : (k === 'ot_out' || isToday ? '<td>-</td>' : '<td class="miss">ไม่ได้สแกน</td>');
+    return '<tr><td><b>' + esc(label) + '</b></td>' + ['in', 'break_out', 'break_in', 'out', 'ot_out'].map(cell).join('') +
+      '<td>' + (c.work == null ? '-' : c.work.toFixed(2)) + '</td><td>' + (c.late || '-') + '</td><td>' + (c.ot ? c.ot.toFixed(2) : '-') + '</td></tr>';
+  });
+  $('#days').innerHTML = '<tr><th>วันที่</th><th>เข้า</th><th>พัก</th><th>กลับ</th><th>ออก</th><th>ออก OT</th><th>ชม.</th><th>สาย</th><th>OT</th></tr>' +
+    (rows.join('') || '<tr><td colspan="9">ไม่มีข้อมูลในเดือนนี้</td></tr>');
+  $('#tDays').textContent = dates.length;
+  $('#tHours').textContent = tH.toFixed(2);
+  $('#tLate').textContent = tL;
+  $('#tOt').textContent = tO.toFixed(2);
+}
+
+async function login() {
+  const c = { id: $('#id').value.trim(), pin: $('#pin').value.trim() };
+  if (!c.id || !c.pin) { $('#msg').textContent = 'กรุณากรอกรหัสพนักงานและ PIN'; return; }
+  $('#msg').textContent = 'กำลังโหลด…'; $('#btnLogin').disabled = true;
+  try {
+    $('#month').value = thisMonth();
+    await load(c, $('#month').value);
+    cred = c;
+    if ($('#remember').checked) store.set('me_cred', c);
+    showData();
+  } catch (e) { $('#msg').textContent = e.message; }
+  $('#btnLogin').disabled = false;
+}
+
+function showData() { $('#login').hidden = true; $('#data').hidden = false; }
+function logout() { cred = null; store.del('me_cred'); $('#pin').value = ''; $('#whoName').textContent = ''; $('#data').hidden = true; $('#login').hidden = false; $('#msg').textContent = ''; }
+
+$('#btnLogin').onclick = login;
+$('#pin').onkeydown = e => { if (e.key === 'Enter') login(); };
+$('#btnLogout').onclick = logout;
+$('#month').onchange = async () => {
+  $('#dataMsg').textContent = 'กำลังโหลด…';
+  try { await load(cred, $('#month').value); $('#dataMsg').textContent = ''; }
+  catch (e) { $('#dataMsg').textContent = e.message; }
+};
+
+if (!API) $('#msg').textContent = 'ลิงก์ไม่ครบ กรุณาขอลิงก์ใหม่จากผู้ดูแล';
+if (cred && API) {
+  $('#month').value = thisMonth(); showData();
+  $('#dataMsg').textContent = 'กำลังโหลด…';
+  load(cred, $('#month').value).then(() => $('#dataMsg').textContent = '').catch(e => { logout(); $('#msg').textContent = e.message; });
+}
+</script>
+</body>
+</html>

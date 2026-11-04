@@ -1,5 +1,5 @@
 // เก็บไฟล์แอปและโมเดลไว้ในเครื่อง เปิดเร็วขึ้นและใช้ได้แม้เน็ตไม่ดี
-const CACHE = 'faceclock-v4';
+const CACHE = 'faceclock-v8';
 const FILES = [
   './', './index.html', './style.css', './app.js', './manifest.json', './icon-192.png', './icon-512.png',
   './lib/face-api.js',

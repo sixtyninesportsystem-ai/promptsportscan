@@ -30,10 +30,7 @@
   <section id="view-scan" class="view active">
     <div class="cam-slot"></div>
     <div id="scanStatus" class="status">แตะปุ่มด้านล่าง แล้วมองกล้อง</div>
-    <div class="big-btns">
-      <button id="btnIn" class="big in">เข้างาน</button>
-      <button id="btnOut" class="big out">ออกงาน</button>
-    </div>
+    <div id="typeBtns" class="big-btns"></div>
     <button id="btnCancel" class="link hidden">ยกเลิก</button>
   </section>
 
@@ -44,12 +41,21 @@
       <input id="regName" placeholder="ชื่อ-นามสกุล" autocomplete="off">
       <input id="regFile" type="file" accept="image/*" multiple hidden>
       <button id="btnPick">＋ เลือกรูปหน้าพนักงาน (3-5 รูป)</button>
+      <button id="btnCam">📷 ถ่ายรูปด้วยกล้อง</button>
+      <div id="regCamBox" class="hidden">
+        <div class="cam-slot"></div>
+        <div class="row" style="margin-top:10px">
+          <button id="btnCamClose">ปิดกล้อง</button>
+          <button id="btnShot" class="primary">📸 ถ่ายรูป</button>
+        </div>
+      </div>
       <small>ใช้รูปหน้าตรง เห็นหน้าชัด ไม่ใส่แว่นดำ/หน้ากาก มีหลายมุมจะดีที่สุด รูปละ 1 คน</small>
       <div id="regFaces" class="thumbs"></div>
       <div id="regStatus" class="status small"></div>
       <button id="btnReg" class="primary" disabled>บันทึกพนักงาน</button>
     </div>
     <h3>พนักงานที่ลงทะเบียนแล้ว <span id="staffCount"></span></h3>
+    <button id="btnStaffLink" class="link">📋 คัดลอกลิงก์ “ประวัติเวลาของฉัน” ส่งให้พนักงาน</button>
     <ul id="staffList" class="list"></ul>
   </section>
 
