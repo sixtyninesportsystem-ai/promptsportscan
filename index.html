@@ -1,0 +1,125 @@
+<!doctype html>
+<html lang="th">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0f766e">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<title>สแกนหน้าเข้า-ออกงาน</title>
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="icon-192.png">
+<link rel="apple-touch-icon" href="icon-192.png">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header>
+  <div class="clock"><div id="nowTime">--:--</div><div id="nowDate"></div></div>
+  <div id="netBadge" class="badge">กำลังเริ่ม…</div>
+</header>
+
+<!-- กล้อง (ย้ายไปอยู่ในหน้าที่เปิดอยู่) -->
+<div id="cam" class="cam">
+  <video id="video" autoplay muted playsinline></video>
+  <canvas id="overlay"></canvas>
+  <div id="camMsg" class="cam-msg">กำลังโหลดระบบจดจำใบหน้า…</div>
+</div>
+
+<main>
+  <!-- หน้าสแกน -->
+  <section id="view-scan" class="view active">
+    <div class="cam-slot"></div>
+    <div id="scanStatus" class="status">แตะปุ่มด้านล่าง แล้วมองกล้อง</div>
+    <div class="big-btns">
+      <button id="btnIn" class="big in">เข้างาน</button>
+      <button id="btnOut" class="big out">ออกงาน</button>
+    </div>
+    <button id="btnCancel" class="link hidden">ยกเลิก</button>
+  </section>
+
+  <!-- หน้าลงทะเบียน -->
+  <section id="view-register" class="view">
+    <div class="cam-slot"></div>
+    <div id="regStatus" class="status">กรอกข้อมูล แล้วกด “เริ่มถ่ายหน้า”</div>
+    <div class="form">
+      <input id="regId" placeholder="รหัสพนักงาน เช่น 001" autocomplete="off">
+      <input id="regName" placeholder="ชื่อ-นามสกุล" autocomplete="off">
+      <button id="btnReg" class="primary">เริ่มถ่ายหน้า (5 ภาพ)</button>
+    </div>
+    <h3>พนักงานที่ลงทะเบียนแล้ว <span id="staffCount"></span></h3>
+    <ul id="staffList" class="list"></ul>
+  </section>
+
+  <!-- หน้ารายงาน -->
+  <section id="view-report" class="view">
+    <div class="form row">
+      <input id="repDate" type="date">
+      <button id="btnRep" class="primary">ดูรายงาน</button>
+    </div>
+    <a id="sheetLink" class="link" target="_blank" rel="noopener" hidden>เปิด Google Sheet ฉบับเต็ม</a>
+    <h3>สรุปรายคน</h3>
+    <div class="table-wrap"><table id="sumTable"></table></div>
+    <h3>รายการสแกนทั้งหมด</h3>
+    <div class="table-wrap"><table id="logTable"></table></div>
+  </section>
+
+  <!-- หน้าตั้งค่า -->
+  <section id="view-settings" class="view">
+    <div class="form">
+      <label>ลิงก์ Web App ของ Apps Script</label>
+      <input id="setUrl" placeholder="https://script.google.com/macros/s/.../exec">
+      <label>รหัสเชื่อมต่อเครื่อง (KIOSK_KEY)</label>
+      <input id="setKey">
+      <label>รหัสผู้ดูแล (ADMIN_PIN)</label>
+      <input id="setPin" type="password" inputmode="numeric">
+      <label class="check"><input id="setVoice" type="checkbox"> พูดชื่อพนักงานหลังสแกนสำเร็จ</label>
+      <label class="check"><input id="setBlink" type="checkbox"> ต้องกระพริบตาก่อนบันทึก (กันใช้รูปถ่ายมาสแกนแทน)</label>
+      <label class="check"><input id="setPhoto" type="checkbox"> แนบรูปตอนสแกน (เก็บไว้ใน Google Drive)</label>
+      <label>ความเข้มงวดในการจำหน้า: <b id="thrVal"></b></label>
+      <input id="setThr" type="range" min="0.35" max="0.6" step="0.01">
+      <small>ค่าน้อย = เข้มงวด (ไม่ค่อยจำผิดคน แต่อาจต้องสแกนหลายครั้ง) ค่าแนะนำ 0.45</small>
+      <button id="btnSave" class="primary">บันทึกและทดสอบการเชื่อมต่อ</button>
+      <div id="setStatus" class="status small"></div>
+      <hr>
+      <div>ข้อมูลที่รอส่ง (ตอนเน็ตหลุด): <b id="queueCount">0</b> รายการ</div>
+      <button id="btnFlush">ส่งข้อมูลที่ค้างตอนนี้</button>
+      <button id="btnLock">ออกจากโหมดผู้ดูแล</button>
+    </div>
+  </section>
+</main>
+
+<nav>
+  <button data-view="scan" class="active">สแกน</button>
+  <button data-view="register">ลงทะเบียน</button>
+  <button data-view="report">รายงาน</button>
+  <button data-view="settings">ตั้งค่า</button>
+</nav>
+
+<!-- หน้าต่างผลลัพธ์ -->
+<div id="result" class="result hidden">
+  <div class="card">
+    <img id="resPhoto" alt="">
+    <div id="resIcon" class="res-icon">✓</div>
+    <div id="resName" class="res-name"></div>
+    <div id="resText" class="res-text"></div>
+    <div id="resNote" class="res-note"></div>
+  </div>
+</div>
+
+<!-- หน้าต่างใส่รหัสผู้ดูแล -->
+<div id="pinBox" class="result hidden">
+  <div class="card">
+    <div class="res-text">ใส่รหัสผู้ดูแล</div>
+    <input id="pinInput" type="password" inputmode="numeric" autocomplete="off">
+    <div class="row">
+      <button id="pinCancel">ยกเลิก</button>
+      <button id="pinOk" class="primary">ตกลง</button>
+    </div>
+    <div id="pinMsg" class="res-note"></div>
+  </div>
+</div>
+
+<script src="lib/face-api.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
